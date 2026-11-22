@@ -16,6 +16,8 @@ Click-through by default, so it never blocks mouse input while you game or work.
 
 - **Any SMTC app**, not just Spotify. Picks the session that is actually playing.
 - **Two-line overlay**: active line bold and larger, next line dimmed.
+- **Smooth line transitions**: the next line glides up into the active slot
+  instead of blinking, and settles with the vocal.
 - **Zero background**: transparent window with outlined text for readability.
 - **Click-through** by default (`WindowTransparentForInput`).
 - **Tray controls**: lock/unlock position, font size (small/medium/large), reset
@@ -47,15 +49,15 @@ Or without activating:
 ```
 
 A music-note icon appears in the system tray. Start something in Spotify or
-YouTube and the overlay appears near the top-left of your primary screen
-(one sixth in from the corner).
+YouTube and the overlay appears near the top-left of your primary screen,
+40 px from the left and 100 px from the top.
 
 ## Tray menu
 
 | Item | Behaviour |
 |---|---|
 | **Lock position (click-through)** | Checked = the overlay ignores the mouse and clicks pass through to the app below. Uncheck to drag it. |
-| **Reset position** | Moves the overlay back to bottom-center. Useful if it ends up off-screen. |
+| **Reset position** | Moves the overlay back to its default spot, 40 px from the left and 100 px from the top. Useful if it ends up off-screen. |
 | **Quit** | Stops the media listener and lyric worker cleanly. |
 
 Double-clicking the tray icon also toggles the lock.
@@ -72,7 +74,9 @@ Double-clicking the tray icon also toggles the lock.
    artist and duration. Below the confidence threshold the app shows nothing
    rather than the wrong song's lyrics.
 4. `overlay_ui.py` renders the active and next line with a custom
-   outline/shadow, handles dragging and position persistence.
+   outline/shadow, handles dragging and position persistence. Line changes are
+   pre-rendered into sprites and tweened with a 200 ms `InOutQuad` scroll, so
+   the highlight settles with the vocal instead of blinking or snapping.
 
 ## Limitations
 
@@ -102,7 +106,8 @@ live playback position and the displayed lines.
 ```
 
 The suite covers LRC parsing, title cleanup, match scoring, timeline
-extrapolation, session arbitration, and LRCLIB response handling.
+extrapolation, session arbitration, scroll lead timing, and LRCLIB response
+handling.
 
 ## Privacy
 

@@ -21,8 +21,11 @@ from text_utils import (
     LyricLine,
     clean_artist,
     clean_title,
+    looks_like_channel,
     parse_lrc,
     score_candidate,
+    split_artist_from_title,
+    strip_artist_prefix,
 )
 
 log = logging.getLogger(__name__)
@@ -73,12 +76,31 @@ class LyricsClient:
         """Look up lyrics; returns ``None`` when no trustworthy match exists."""
         clean = clean_title(title)
         artist_clean = clean_artist(artist)
-        if not clean:
+
+        # Chrome reports the YouTube *channel* as the artist (e.g.
+        # "ArianaGrandeVevo") while the real artist is the first part of the
+        # title. Recover both before building the query.
+        stripped_title = clean_title(title)
+        if not stripped_title:
+            return None
+
+        if looks_like_channel(artist_clean) or not artist_clean:
+            clean, derived_artist = split_artist_from_title(title)
+            if derived_artist:
+                artist_clean = derived_artist
+        else:
+            # Artist field is usable, but the title may still repeat it:
+            # "The Weeknd - Closing Night" with artist "The Weeknd".
+            clean = strip_artist_prefix(stripped_title, artist_clean)
+
+        if not clean or not clean.strip():
             return None
 
         params: dict[str, str] = {"track_name": clean, "artist_name": artist_clean}
         if album:
             params["album_name"] = album
+        # LRCLIB rejects duration=0 with HTTP 400, and browser/stream sessions
+        # frequently report 0. Omit it rather than sending an invalid value.
         if duration and duration > 0:
             params["duration"] = str(int(round(duration)))
 
@@ -104,7 +126,11 @@ class LyricsClient:
                 duration=_as_float(item.get("duration")),
                 instrumental=bool(item.get("instrumental")),
             )
-            score = score_candidate(candidate, title, artist, duration)
+            score = score_candidate(candidate, clean, artist_clean, duration)
+            # Prefer a synced record over a plain-only one at equal match
+            # quality, since synced lyrics are what the overlay actually needs.
+            if item.get("syncedLyrics"):
+                score += 1.5
             if score > best_score:
                 best_score = score
                 best = item

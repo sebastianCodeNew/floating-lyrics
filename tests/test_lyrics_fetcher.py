@@ -159,3 +159,69 @@ def test_empty_title_skips_network() -> None:
     client, fake = make_client({})
     assert client.fetch("   ", "Artist", "", None) is None
     assert fake.calls == []
+
+
+def test_zero_duration_is_omitted_from_request() -> None:
+    # LRCLIB returns HTTP 400 for duration=0, which browser sessions report.
+    client, fake = make_client(
+        {
+            "/get": FakeResponse(
+                200,
+                {
+                    "trackName": "Closing Night",
+                    "artistName": "The Weeknd",
+                    "syncedLyrics": "[00:01.00]Line",
+                },
+            )
+        }
+    )
+    client.fetch("The Weeknd - Closing Night", "The Weeknd", "", 0.0)
+
+    _, params = fake.calls[0]
+    assert "duration" not in params
+    assert params["track_name"] == "Closing Night"
+
+
+def test_artist_prefix_stripped_before_lookup() -> None:
+    client, fake = make_client(
+        {
+            "/get": FakeResponse(
+                200,
+                {
+                    "trackName": "Closing Night",
+                    "artistName": "The Weeknd",
+                    "syncedLyrics": "[00:01.00]Line",
+                },
+            )
+        }
+    )
+    client.fetch("The Weeknd - Closing Night", "The Weeknd", "", 227.0)
+
+    _, params = fake.calls[0]
+    assert params["track_name"] == "Closing Night"
+
+
+def test_youtube_channel_artist_is_recovered_from_title() -> None:
+    # Chrome reports the channel, not the artist.
+    client, fake = make_client(
+        {
+            "/get": FakeResponse(
+                200,
+                {
+                    "trackName": "hate that i made you love me",
+                    "artistName": "Ariana Grande",
+                    "syncedLyrics": "[00:01.00]Line",
+                },
+            )
+        }
+    )
+    client.fetch(
+        "Ariana Grande - hate that i made you love me (official music video)",
+        "ArianaGrandeVevo",
+        "",
+        300.1,
+    )
+
+    _, params = fake.calls[0]
+    assert params["track_name"] == "hate that i made you love me"
+    assert params["artist_name"] == "Ariana Grande"

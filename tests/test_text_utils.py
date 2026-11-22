@@ -9,7 +9,9 @@ from text_utils import (
     clean_artist,
     clean_title,
     parse_lrc,
+    promoted_line_index,
     score_candidate,
+    strip_artist_prefix,
     wrap_text,
 )
 
@@ -72,6 +74,29 @@ def test_active_line_index_boundaries() -> None:
     assert active_line_index([], 1.0) == -1
 
 
+def test_promoted_line_index_looks_ahead_only_when_playing() -> None:
+    lines = parse_lrc("[00:00.00]one\n[00:10.00]two\n[00:20.00]three")
+    assert promoted_line_index(lines, 9.95, playing=True, lead_seconds=0.14) == 1
+    assert promoted_line_index(lines, 9.95, playing=False, lead_seconds=0.14) == 0
+    assert promoted_line_index(lines, 9.80, playing=True, lead_seconds=0.14) == 0
+    assert promoted_line_index(lines, 10.05, playing=True, lead_seconds=0.14) == 1
+
+
+def test_promoted_line_index_clamps_lead_to_half_the_gap() -> None:
+    lines = parse_lrc("[00:00.00]one\n[00:00.20]two\n[00:00.40]three")
+    # gap 0.2 -> lead 0.1, so 0.11 is early and 0.09 is not.
+    assert promoted_line_index(lines, 0.11, playing=True, lead_seconds=0.14) == 1
+    assert promoted_line_index(lines, 0.09, playing=True, lead_seconds=0.14) == 0
+
+
+def test_promoted_line_index_handles_start_and_end() -> None:
+    lines = parse_lrc("[00:01.00]one\n[00:10.00]two")
+    assert promoted_line_index(lines, 0.9, playing=True, lead_seconds=0.14) == 0
+    assert promoted_line_index(lines, 0.8, playing=True, lead_seconds=0.14) == -1
+    assert promoted_line_index(lines, 99.0, playing=True, lead_seconds=0.14) == 1
+    assert promoted_line_index([], 5.0, playing=True, lead_seconds=0.14) == -1
+
+
 def test_score_prefers_exact_match() -> None:
     exact = Candidate("Blinding Lights", "The Weeknd", 200.0)
     cover = Candidate("Blinding Lights", "Some Cover Band", 240.0)
@@ -118,3 +143,36 @@ def test_wrap_text_splits_unspaced_text() -> None:
         "\u4f60\u597d\u4e16\u754c",
         "\u4f60\u597d",
     ]
+
+
+def test_strip_artist_prefix_removes_duplicated_artist() -> None:
+    # Chrome/YouTube report "Artist - Title" while artist is already "Artist".
+    assert (
+        strip_artist_prefix("The Weeknd - Closing Night", "The Weeknd")
+        == "Closing Night"
+    )
+    assert strip_artist_prefix("NIKI - lowkey", "NIKI") == "lowkey"
+    assert strip_artist_prefix("Song Name", "Artist") == "Song Name"
+
+
+def test_strip_artist_prefix_handles_dash_variants() -> None:
+    assert strip_artist_prefix("Artist \u2013 Title", "Artist") == "Title"
+    assert strip_artist_prefix("Artist | Title", "Artist") == "Title"
+    assert strip_artist_prefix("Artist Title", "Artist") == "Title"
+
+
+def test_score_penalises_implausible_duration() -> None:
+    real = Candidate("Closing Night", "The Weeknd", 227.0)
+    junk = Candidate("Closing Night [Bonus]", "The Weeknd", 1.0)
+    assert score_candidate(real, "Closing Night", "The Weeknd", 227.0) > score_candidate(
+        junk, "Closing Night", "The Weeknd", 227.0
+    )
+
+
+def test_score_penalises_wildly_wrong_duration() -> None:
+    # Title (6) + artist (3) - wrong-duration penalty (3) = 6.0, below the
+    # 10.0 an exact duration match would earn.
+    candidate = Candidate("Closing Night", "The Weeknd", 600.0)
+    close = Candidate("Closing Night", "The Weeknd", 227.0)
+    assert score_candidate(candidate, "Closing Night", "The Weeknd", 227.0) == 6.0
+    assert score_candidate(close, "Closing Night", "The Weeknd", 227.0) == 12.0
